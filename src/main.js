@@ -1,5 +1,5 @@
 //model class
-class EditModel {
+class EditorUtilities {
   constructor(chunk) {
     this.imgMetadata = chunk.slice(0, 54);
     this.pixelData = chunk.slice(54);
@@ -11,53 +11,61 @@ class EditModel {
     });
     return [...this.imgMetadata, ...this.pixelData];
   }
+
+  reduceBrightness() {
+    this.pixelData.forEach((_, index) => {
+      this.pixelData[index] = Math.max(this.pixelData[index] * 0.5, 0); //red brightness
+    });
+    return [...this.imgMetadata, ...this.pixelData];
+  }
 }
 
 //controller class
-class EditController {
+class ImageEditor {
   constructor(inputPath, outputPath) {
     this.inputPath = inputPath;
     this.outputPath = outputPath;
   }
 
-  async readFromFile() {
+  async startProcessing() {
     const fsFileObject = await Deno.open(this.inputPath);
-    const fileData = [];
-    for await (const chunk of fsFileObject.readable) {
-      fileData.push(chunk);
-    }
-    return fileData;
-  }
-
-  processImage(inputFileData) {
-    const editedImage = [];
-    for (const chunk of inputFileData) {
-      const imageChunk = new EditModel(chunk);
-      editedImage.push(imageChunk.increaseBrightness());
-    }
-    return editedImage;
-  }
-
-  async writeToFile(inputFileData) {
     const outputFile = await Deno.open(this.outputPath, {
       write: true,
       create: true,
     });
-    const writer = outputFile.writable.getWriter();
-    for (const chunk of inputFileData) {
-      await writer.write(new Uint8Array(chunk));
-    }
+    fsFileObject.readable
+      .pipeThrough(this.processImage)
+      .pipeTo(outputFile.writable);
   }
+
+  processImage = new TransformStream({
+    transform(chunk, controller) {
+      const imageChunk = new EditorUtilities(chunk);
+      const editedImage = imageChunk.reduceBrightness();
+      controller.enqueue(new Uint8Array(editedImage));
+    },
+  });
+
+  // await this.writeToFile(editedImage);
+  // }
+  // async writeToFile(inputFileData) {
+  //   const outputFile = await Deno.open(this.outputPath, {
+  //     write: true,
+  //     create: true,
+  //   });
+  //   const writer = outputFile.writable.getWriter();
+  //   for (const chunk of inputFileData) {
+  //     await writer.write(new Uint8Array(chunk));
+  //   }
+  // }
 }
 
 const main = async () => {
-  const filePaths = new EditController(
+  const editor = new ImageEditor(
     "assets/blackbuck.bmp",
     "assets/editedBlackbuck.bmp"
   );
-  const inputFileData = await filePaths.readFromFile();
-  const processedImage = filePaths.processImage(inputFileData);
-  filePaths.writeToFile(processedImage); //will be handle by view class
+  await editor.startProcessing();
 };
 
 main();
