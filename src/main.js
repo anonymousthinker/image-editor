@@ -2,21 +2,21 @@
 class EditorUtilities {
   constructor(chunk) {
     this.imgMetadata = chunk.slice(0, 54);
-    this.pixelData = chunk.slice(54);
+    this.imgPixelData = chunk.slice(54);
   }
 
   increaseBrightness() {
-    this.pixelData.forEach((_, index) => {
-      this.pixelData[index] = Math.min(this.pixelData[index] * 2, 255); //incr brightness
+    this.imgPixelData.forEach((_, index) => {
+      this.imgPixelData[index] = Math.min(this.imgPixelData[index] * 2, 255);
     });
-    return [...this.imgMetadata, ...this.pixelData];
+    return [...this.imgMetadata, ...this.imgPixelData];
   }
 
   reduceBrightness() {
-    this.pixelData.forEach((_, index) => {
-      this.pixelData[index] = Math.max(this.pixelData[index] * 0.5, 0); //red brightness
+    this.imgPixelData.forEach((_, index) => {
+      this.imgPixelData[index] = Math.max(this.imgPixelData[index] * 0.5, 0);
     });
-    return [...this.imgMetadata, ...this.pixelData];
+    return [...this.imgMetadata, ...this.imgPixelData];
   }
 }
 
@@ -27,45 +27,31 @@ class ImageEditor {
     this.outputPath = outputPath;
   }
 
-  async startProcessing() {
+  async processImage(editType) {
     const fsFileObject = await Deno.open(this.inputPath);
     const outputFile = await Deno.open(this.outputPath, {
       write: true,
       create: true,
     });
-    fsFileObject.readable
-      .pipeThrough(this.processImage)
-      .pipeTo(outputFile.writable);
+    const processImage = new TransformStream({
+      transform(chunk, controller) {
+        const imageChunk = new EditorUtilities(chunk);
+        const allEdits = {
+          increase_brightness: "increaseBrightness",
+          reduce_brightness: "reduceBrightness",
+        };
+        const editedImage = imageChunk[allEdits[editType]]();
+        controller.enqueue(new Uint8Array(editedImage));
+      },
+    });
+    fsFileObject.readable.pipeThrough(processImage).pipeTo(outputFile.writable);
   }
-
-  processImage = new TransformStream({
-    transform(chunk, controller) {
-      const imageChunk = new EditorUtilities(chunk);
-      const editedImage = imageChunk.reduceBrightness();
-      controller.enqueue(new Uint8Array(editedImage));
-    },
-  });
-
-  // await this.writeToFile(editedImage);
-  // }
-  // async writeToFile(inputFileData) {
-  //   const outputFile = await Deno.open(this.outputPath, {
-  //     write: true,
-  //     create: true,
-  //   });
-  //   const writer = outputFile.writable.getWriter();
-  //   for (const chunk of inputFileData) {
-  //     await writer.write(new Uint8Array(chunk));
-  //   }
-  // }
 }
 
-const main = async () => {
-  const editor = new ImageEditor(
-    "assets/blackbuck.bmp",
-    "assets/editedBlackbuck.bmp"
-  );
-  await editor.startProcessing();
+const main = async (args) => {
+  const [inputFile, outputFile, editType] = args;
+  const editor = new ImageEditor(inputFile, outputFile);
+  await editor.processImage(editType);
 };
 
-main();
+main(Deno.args);
